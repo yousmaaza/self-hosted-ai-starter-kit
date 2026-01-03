@@ -200,6 +200,26 @@ wait_for_n8n() {
     return 1
 }
 
+# Fonction pour vérifier le task runner
+check_task_runner() {
+    print_info "Vérification du task runner Python..."
+
+    # Vérifier si le conteneur task-runner existe et est en cours d'exécution
+    if docker compose ps n8n-task-runner | grep -q "Up"; then
+        print_success "Task runner Python opérationnel"
+
+        # Vérifier les logs pour des erreurs éventuelles
+        if docker compose logs n8n-task-runner 2>&1 | grep -qi "error\|failed"; then
+            print_warning "Des erreurs ont été détectées dans les logs du task runner"
+            print_info "Vérifiez avec: docker compose logs n8n-task-runner"
+        fi
+    else
+        print_warning "Task runner non détecté ou arrêté"
+        print_info "Le task runner est nécessaire pour exécuter du code Python dans n8n"
+        print_info "Vérifiez les logs avec: docker compose logs n8n-task-runner"
+    fi
+}
+
 # Fonction pour afficher le statut des services
 show_status() {
     echo ""
@@ -242,10 +262,12 @@ show_final_info() {
     echo -e "  ${BLUE}Interface n8n:${NC}     $N8N_URL"
     echo -e "  ${BLUE}Ollama API:${NC}       http://localhost:11434"
     echo -e "  ${BLUE}Qdrant:${NC}           http://localhost:6333"
+    echo -e "  ${BLUE}Task Runner:${NC}      Python & JavaScript (port 5679)"
     echo ""
     echo -e "${YELLOW}Commandes utiles:${NC}"
     echo -e "  ${BLUE}Arrêter:${NC}          docker compose down"
-    echo -e "  ${BLUE}Logs:${NC}             docker compose logs -f n8n"
+    echo -e "  ${BLUE}Logs n8n:${NC}         docker compose logs -f n8n"
+    echo -e "  ${BLUE}Logs runner:${NC}      docker compose logs -f n8n-task-runner"
     echo -e "  ${BLUE}Redémarrer:${NC}       ./start-n8n.sh"
     echo ""
 }
@@ -266,6 +288,7 @@ main() {
 
     # Attendre que n8n soit prêt
     if wait_for_n8n; then
+        check_task_runner
         show_status
         open_browser
         show_final_info

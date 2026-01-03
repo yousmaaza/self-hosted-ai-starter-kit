@@ -142,7 +142,43 @@ OLLAMA_HOST=host.docker.internal:11434
 
 **Important** : Décommentez la dernière ligne `OLLAMA_HOST` pour activer la connexion avec Ollama local.
 
-### Étape 5 : Corriger le fichier docker-compose.yml (si nécessaire)
+### Étape 5 : Configurer le Task Runner Python (nouveau)
+
+Le task runner permet d'exécuter du code Python et JavaScript dans un environnement isolé et sécurisé.
+
+#### Générer le token d'authentification
+
+```bash
+# Générer un token d'authentification pour le task runner
+echo "N8N_RUNNERS_AUTH_TOKEN=$(openssl rand -hex 32)" >> .env
+```
+
+#### Configuration dans le fichier .env
+
+Ajoutez les variables suivantes dans votre fichier `.env` :
+
+```bash
+# Task runner configuration (Python & JavaScript execution)
+N8N_RUNNERS_AUTH_TOKEN=<votre_token_généré>
+N8N_RUNNERS_ENABLED=true
+N8N_RUNNERS_MODE=external
+N8N_RUNNERS_BROKER_LISTEN_ADDRESS=0.0.0.0
+N8N_RUNNERS_MAX_CONCURRENCY=5
+N8N_RUNNERS_AUTO_SHUTDOWN_TIMEOUT=60
+
+# Autorisations d'imports Python (* = tous les modules autorisés)
+# Pour plus de sécurité en production, spécifiez les modules autorisés séparés par des virgules
+N8N_RUNNERS_STDLIB_ALLOW=*
+N8N_RUNNERS_EXTERNAL_ALLOW=*
+```
+
+**Notes importantes :**
+- Le `N8N_RUNNERS_AUTH_TOKEN` doit être identique dans n8n et le task runner
+- La configuration par défaut autorise tous les imports Python (`*`)
+- Pour la production, restreignez les imports aux modules nécessaires
+- Le task runner s'exécute dans un conteneur Docker séparé pour l'isolation
+
+### Étape 6 : Corriger le fichier docker-compose.yml (si nécessaire)
 
 Si vous avez Docker Compose version < 2.23.0, vous devez simplifier la syntaxe `env_file` :
 
@@ -173,6 +209,7 @@ docker compose ps
 
 Vous devriez voir :
 - `n8n` (port 5678)
+- `n8n-task-runner` (running)
 - `postgres` (healthy)
 - `qdrant` (port 6333)
 
@@ -230,8 +267,14 @@ docker compose down
 # Redémarrer n8n
 docker compose restart n8n
 
+# Redémarrer le task runner
+docker compose restart n8n-task-runner
+
 # Voir les logs en temps réel
 docker compose logs -f n8n
+
+# Voir les logs du task runner
+docker compose logs -f n8n-task-runner
 
 # Voir les logs de tous les services
 docker compose logs -f
@@ -350,6 +393,49 @@ docker volume prune
 df -h
 ```
 
+### Python Code Node ne fonctionne pas
+
+**Problème** : Les nœuds Python Code ne s'exécutent pas
+
+**Solution** :
+1. Vérifier que le task runner est en cours d'exécution :
+   ```bash
+   docker compose ps | grep task-runner
+   ```
+
+2. Vérifier les logs du task runner :
+   ```bash
+   docker compose logs -f n8n-task-runner
+   ```
+
+3. Vérifier l'authentification :
+   ```bash
+   grep N8N_RUNNERS_AUTH_TOKEN .env
+   # Le token doit être défini et non vide
+   ```
+
+4. Redémarrer le task runner :
+   ```bash
+   docker compose restart n8n-task-runner
+   ```
+
+### Erreurs d'import Python
+
+**Problème** : `ImportError` lors de l'utilisation de modules Python
+
+**Solution** :
+1. Vérifier les autorisations d'imports dans `.env` :
+   ```bash
+   grep N8N_RUNNERS_STDLIB_ALLOW .env
+   grep N8N_RUNNERS_EXTERNAL_ALLOW .env
+   # Doivent être définis à * pour autoriser tous les imports
+   ```
+
+2. Redémarrer le task runner après modification :
+   ```bash
+   docker compose restart n8n-task-runner
+   ```
+
 ### Réinitialisation complète
 
 Si vous souhaitez repartir de zéro :
@@ -370,31 +456,33 @@ docker compose up -d
 ## Architecture du système
 
 ```
-┌─────────────────────────────────────────────┐
-│            macOS (Machine hôte)             │
-│                                             │
-│  ┌─────────────────────────────────────┐   │
-│  │  Ollama (local)                     │   │
-│  │  Port: 11434                        │   │
-│  │  Modèles: llama3.2, mistral, etc.  │   │
-│  └─────────────────────────────────────┘   │
-│                    ▲                        │
-│                    │ host.docker.internal   │
-│                    │                        │
-│  ┌─────────────────────────────────────┐   │
-│  │    Docker Compose                   │   │
-│  │                                     │   │
-│  │  ┌────────────┐  ┌──────────────┐  │   │
-│  │  │    n8n     │  │  PostgreSQL  │  │   │
-│  │  │  :5678     │──│              │  │   │
-│  │  └────────────┘  └──────────────┘  │   │
-│  │                                     │   │
-│  │  ┌────────────┐                    │   │
-│  │  │  Qdrant    │                    │   │
-│  │  │  :6333     │                    │   │
-│  │  └────────────┘                    │   │
-│  └─────────────────────────────────────┘   │
-└─────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│               macOS (Machine hôte)                       │
+│                                                          │
+│  ┌────────────────────────────────────────────────┐     │
+│  │  Ollama (local)                                │     │
+│  │  Port: 11434                                   │     │
+│  │  Modèles: llama3.2, mistral, etc.             │     │
+│  └────────────────────────────────────────────────┘     │
+│                         ▲                                │
+│                         │ host.docker.internal           │
+│                         │                                │
+│  ┌────────────────────────────────────────────────┐     │
+│  │           Docker Compose                       │     │
+│  │                                                │     │
+│  │  ┌──────────────┐       ┌──────────────────┐  │     │
+│  │  │     n8n      │       │   n8n-task-      │  │     │
+│  │  │   :5678      │◄─────►│    runner        │  │     │
+│  │  │   :5679      │ 5679  │ (Python/JS)      │  │     │
+│  │  └──────┬───────┘       └──────────────────┘  │     │
+│  │         │                                      │     │
+│  │         │                                      │     │
+│  │  ┌──────▼───────┐       ┌──────────────────┐  │     │
+│  │  │  PostgreSQL  │       │     Qdrant       │  │     │
+│  │  │              │       │     :6333        │  │     │
+│  │  └──────────────┘       └──────────────────┘  │     │
+│  └────────────────────────────────────────────────┘     │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ---

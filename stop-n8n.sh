@@ -78,6 +78,13 @@ show_final_status() {
         docker compose ps
     else
         print_success "Tous les services Docker sont arrêtés"
+
+        # Vérifier spécifiquement le task runner
+        if docker compose ps n8n-task-runner 2>/dev/null | grep -q "Up"; then
+            print_info "Task runner Python encore actif"
+        else
+            print_success "Task runner Python arrêté"
+        fi
     fi
 
     echo ""
