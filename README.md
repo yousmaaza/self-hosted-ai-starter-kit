@@ -25,6 +25,8 @@ store with an comprehensive API
 ✅ [**PostgreSQL**](https://www.postgresql.org/) -  Workhorse of the Data
 Engineering world, handles large amounts of data safely.
 
+✅ [**Python Task Runner**](https://docs.n8n.io/hosting/configuration/task-runners/) - Execute Python and JavaScript code securely in isolated containers
+
 ### What you can build
 
 ⭐️ **AI Agents** for scheduling appointments
@@ -221,6 +223,16 @@ interact with the local filesystem.
 
 This project is licensed under the Apache License 2.0 - see the
 [LICENSE](LICENSE) file for details.
+
+## 📚 Documentation
+
+Additional documentation is available in the [`docs/`](docs/) folder:
+
+- [**CLAUDE.md**](docs/CLAUDE.md) - Architecture guide and development reference for Claude Code
+- [**CONTRIBUTING.md**](docs/CONTRIBUTING.md) - Contribution guidelines and project vision
+- [**INSTALLATION.md**](docs/INSTALLATION.md) - Detailed installation instructions
+- [**README_FR.md**](docs/README_FR.md) - French version of this README
+
 
 ## 💬 Support
 

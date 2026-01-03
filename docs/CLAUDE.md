@@ -8,6 +8,7 @@ The Self-hosted AI Starter Kit is a Docker Compose-based template that provides 
 
 ### Core Stack
 - **n8n**: Low-code workflow automation platform (port 5678)
+- **n8n Task Runner**: External task runner for Python and JavaScript code execution (port 5679)
 - **Ollama**: Local LLM inference (port 11434)
 - **Qdrant**: Vector database for embeddings (port 6333)
 - **PostgreSQL**: Data persistence for n8n
@@ -70,6 +71,7 @@ docker compose create && docker compose --profile cpu up
 ### Viewing Logs
 ```bash
 docker compose logs -f n8n
+docker compose logs -f n8n-task-runner  # Task runner logs
 docker compose logs -f ollama-cpu  # or ollama-gpu/ollama-gpu-amd
 ```
 
@@ -87,9 +89,10 @@ The `docker-compose.yml` uses YAML anchors (`x-n8n`, `x-ollama`, `x-init-ollama`
 **Service dependency chain:**
 1. `postgres` starts first (with healthcheck)
 2. `n8n-import` runs once to import demo credentials and workflows from `n8n/demo-data/`
-3. `n8n` starts after import completes
-4. `ollama-*` services start based on profile
-5. `ollama-pull-llama-*` runs once to download llama3.2 model
+3. `n8n` starts after import completes (exposes ports 5678 for UI and 5679 for task broker)
+4. `n8n-task-runner` starts after n8n (connects to task broker on port 5679)
+5. `ollama-*` services start based on profile
+6. `ollama-pull-llama-*` runs once to download llama3.2 model
 
 ### Volume Mounts
 
@@ -107,8 +110,28 @@ All services run on a single Docker network called `demo`. Services communicate 
 - n8n connects to Postgres via `postgres:5432`
 - n8n connects to Ollama via `${OLLAMA_HOST}` (defaults to `ollama:11434`)
 - n8n connects to Qdrant via `qdrant:6333`
+- n8n-task-runner connects to n8n task broker via `n8n:5679`
 
 **Mac-specific networking:** When running Ollama locally on macOS (outside Docker), set `OLLAMA_HOST=host.docker.internal:11434` in `.env` to allow n8n container to reach the host's Ollama service.
+
+### Task Runner Architecture
+
+The task runner uses **external mode** where Python and JavaScript code execution happens in a separate container (`n8nio/runners:latest`) for improved security and isolation.
+
+**How it works:**
+1. n8n acts as a task broker, listening on port 5679
+2. The task runner container connects to this broker and launches both JavaScript and Python runners
+3. When a Code node executes, n8n dispatches the task to the appropriate runner
+4. The runner executes the code in an isolated environment and returns results
+
+**Configuration options:**
+- `N8N_RUNNERS_AUTH_TOKEN`: Shared secret for authentication between n8n and task runners
+- `N8N_RUNNERS_MAX_CONCURRENCY`: Maximum concurrent tasks (default: 5)
+- `N8N_RUNNERS_AUTO_SHUTDOWN_TIMEOUT`: Idle timeout in seconds before shutdown (default: 60)
+- `N8N_RUNNERS_STDLIB_ALLOW`: Allowed Python stdlib modules (* = all)
+- `N8N_RUNNERS_EXTERNAL_ALLOW`: Allowed external Python packages (* = all)
+
+**Security note:** The default configuration allows all Python imports (`*`). For production, restrict this to specific modules needed for your workflows.
 
 ### Local File Access
 
@@ -125,6 +148,14 @@ The `.env` file contains critical secrets that should be unique per installation
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`: PostgreSQL credentials
 - `N8N_ENCRYPTION_KEY`: Encrypts credentials in database (generate with `openssl rand -hex 32`)
 - `N8N_USER_MANAGEMENT_JWT_SECRET`: JWT signing key (generate with `openssl rand -hex 32`)
+- `N8N_RUNNERS_AUTH_TOKEN`: Shared secret for task runner authentication (generate with `openssl rand -hex 32`)
+
+**Task runner variables:**
+- `N8N_RUNNERS_ENABLED`: Enable task runners (default: true)
+- `N8N_RUNNERS_MODE`: Runner mode, set to "external" for container-based execution
+- `N8N_RUNNERS_BROKER_LISTEN_ADDRESS`: Task broker bind address (default: 0.0.0.0)
+- `N8N_RUNNERS_MAX_CONCURRENCY`: Max concurrent tasks per runner
+- `N8N_RUNNERS_STDLIB_ALLOW` / `N8N_RUNNERS_EXTERNAL_ALLOW`: Python import restrictions
 
 **Mac-specific configuration:**
 - `OLLAMA_HOST=host.docker.internal:11434`: Required when Ollama runs on host Mac instead of in Docker
@@ -179,9 +210,17 @@ These scripts are Mac-optimized but demonstrate the startup sequence for other p
 
 **Permission issues with shared folder:** Ensure `./shared` directory exists and is writable
 
+**Python Code node not working:** Ensure task runner is running (`docker compose ps | grep task-runner`) and check logs: `docker compose logs -f n8n-task-runner`
+
+**Python import errors:** Check `N8N_RUNNERS_STDLIB_ALLOW` and `N8N_RUNNERS_EXTERNAL_ALLOW` settings in `.env`. Set to `*` to allow all imports, or specify comma-separated module names for restricted access.
+
+**Task runner authentication errors:** Ensure `N8N_RUNNERS_AUTH_TOKEN` is identical in both n8n and task-runner service configurations
+
 ## References
 
 - [n8n AI documentation](https://docs.n8n.io/advanced-ai/)
+- [n8n Task Runners documentation](https://docs.n8n.io/hosting/configuration/task-runners/)
 - [n8n AI workflow templates](https://n8n.io/workflows/categories/ai/)
 - [Ollama documentation](https://github.com/ollama/ollama)
 - [Qdrant documentation](https://qdrant.tech/documentation/)
+- [Task Runner Launcher (GitHub)](https://github.com/n8n-io/task-runner-launcher)
