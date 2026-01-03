@@ -126,6 +126,9 @@ services:
       # Allow all Python stdlib and external imports (can be restricted for security)
       - N8N_RUNNERS_STDLIB_ALLOW=${N8N_RUNNERS_STDLIB_ALLOW:-*}
       - N8N_RUNNERS_EXTERNAL_ALLOW=${N8N_RUNNERS_EXTERNAL_ALLOW:-*}
+    volumes:
+      # Mount custom config to allow Python imports (overrides default empty strings)
+      - ./n8n-task-runners.json:/etc/n8n-task-runners.json:ro
     depends_on:
       - n8n
 
